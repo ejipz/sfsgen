@@ -16,7 +16,7 @@ def update_scenario(scenario_id, **fields):
             scenarios[scenario_id].update(fields)
 
 # deterministic generator
-USERNAMES = ["alice", "junjie", "jayden", "kayden", "ayden", "eden", "biden", "melvin", "kelvin", "alvin", 
+USERNAMES = ["alice", "junjie", "jayden", "kayden", "ayden", "eden", "hayden", "melvin", "kelvin", "alvin", 
 "elvin", "xavier", "javier", "yiting", "ethan", "honey", "batman", "suparman", "jeff", "sumtingwong"]
 ROLES = ["employee", "administrator", "supervisor"]
 OS = ["Windows", "macOS", "Linux"]
