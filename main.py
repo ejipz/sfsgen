@@ -50,50 +50,76 @@ def generate_devices(rng, n):
 # attack chain
 def generate_ac_details(type, rng):
     if type == "authentication":
-        return {
-            "result": "success",
-            "method": rng.choice(["password", "sso"]),
+        return {  
             # private ip
             # fourth octet is between 1 and 254 because .0 and .255 are reserved
-            "source_ip": f"10.0.{rng.randint(0, 255)}.{rng.randint(1, 254)}" 
+            "source_ip": f"10.0.{rng.randint(0, 255)}.{rng.randint(1, 254)}", 
+            "method": rng.choice(["password", "sso", "mfa_push", "kerberos", "ntlm"]),
+            "result": "success"
         }
     if type == "process_execution":
         return {
-            "process_name": rng.choice(["powershell.exe", "cmd.exe", "bash"]),
+            "process_id": rng.randint(1000, 65535),
+            "process_name": rng.choice(["powershell.exe", "cmd.exe", "bash", "sh", "zsh"]),
+            "parent_process": rng.choice(["explorer.exe", "winlogon.exe", "svchost.exe"]),
             "command": rng.choice([
                 "powershell -enc <base64>",
                 "whoami /all",
+                "certutil -decode payload.b64 payload.exe"
             ])
         }
     if type == "credential_access":
-        return {"method": rng.choice(["browser_credential_store", "lsass_dump", "sam_registry_dump"])}
+        return {
+            "method": rng.choice(["browser_credential_store", "lsass_dump", "sam_registry_dump"]),
+            "process_name": rng.choice(["mimikatz.exe", "procdump.exe", "powershell.exe"]),
+            "target_process": rng.choice(["lsass.exe", "chrome.exe", "svchost.exe", "firefox.exe", "msedge.exe"])
+        }
     if type == "network_connection":
         return {
             "destination_ip": f"203.0.113.{rng.randint(1, 254)}", # reserved for documentation and examples
-            "destination_port": rng.choice([443, 80, 53]),
-            "protocol": "tcp"
+            "destination_port": rng.choice([443, 80, 53, 22, 21]),
+            "protocol": "tcp",
+            "direction": "outbound", 
+            "bytes_sent": rng.randint(100, 50000)
         }
     if type == "data_exfiltration":
         return {
             "destination_ip": f"203.0.113.{rng.randint(1, 254)}",
-            "bytes_transferred": rng.randint(1000000, 50000000), # generates a whole num between 1m and 50m
-            "channel": rng.choice(["https", "dns_tunnel", "ftp"])
+            "channel": rng.choice(["https", "dns_tunnel", "ftp"]),
+            "bytes_transferred": rng.randint(1000000, 50000000) # generates a whole num between 1m and 50m
         }
     return {}
 
 # background
 def generate_bg_details(type, rng):
     if type == "login_attempt":
-        return {"result": rng.choice(["sucess", "failure"])}
+        return {
+            "source_ip": f"10.0.{rng.randint(0, 255)}.{rng.randint(1, 254)}",
+            "result": rng.choice(["success", "failure"])
+        }
     if type == "file_access":
         return {
             "path": rng.choice(["/etc/passwd", "/etc/shadow"]),
-            "action": rng.choice(["read", "write"])
+            "action": rng.choice(["read", "write", "copy"])
         }
     if type == "registry_modification":
-        return {"key": "HKLM\\Software\\Example"}
+        return {
+            "key": rng.choice([
+                "HKLM\\Software\\Microsoft\\WindowsNT\\CurrentVersion\\Windows\\AppInit_DLLs",
+                "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+                "HKEY_CLASSES_ROOT\\exefile\\shell\\open\\command"
+            ]),
+            "action": rng.choice(["created", "modified", "deleted"])
+        }
     if type == "scheduled_task_created":
-        return {"task_name": "Microsoft Boost Kernel Optimisation"}
+        return {
+            "task_name": rng.choice([
+                "Microsoft Boost Kernel Optimisation",
+                "Windows Update Helper",
+                "System Health Check"
+            ]),
+            "trigger": rng.choice(["at_logon", "at_startup", "daily"])
+        }
     return {}
 
 def generate_credential_theft_scenario(num_users, num_devices, num_events, seed):
