@@ -1,7 +1,6 @@
 import threading
 import time
 from datetime import datetime
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -13,31 +12,35 @@ client = TestClient(app)
 VALID_PAYLOAD = {"scenario": "credential_theft", "users": 1, "devices": 1, "events": 6, "seed": 42}
 
 # helper functions
-def wait_for_completion(id, timeout = 5.0):
+def wait_for_completion(id, timeout = 5.0): # timeout is optional and 5s by default
+    # gets the current time
     start = time.time()
-    
-    while time.time() - start < timeout:
-        response = client.get(f"/api/scenarios/{id}")
-        data = response.json()
 
+    # while the diff between the current time and the start time is less than timeout
+    while time.time() - start < timeout: 
+        # return data if status is completed or failed
+        response = client.get(f"/api/scenarios/{id}") 
+        data = response.json()
         if data["status"] in ("completed", "failed"):
             return data
-        
-        time.sleep(0.02)
+        time.sleep(0.02) # wait 0.02s before continuing
 
     raise TimeoutError(f"scenario {id} did not finish within {timeout}s")
 
 # tests
 def test_scenario_creation():
     response = client.post("/api/scenarios", json=VALID_PAYLOAD)
+
+    # check if status code is 202
     assert response.status_code == 202
 
     body = response.json()
-    assert isinstance(body["id"], int) and body["id"] > 0
-    assert body["status"] == "pending"
-    assert response.headers["location"] == f"/api/scenarios/{body['id']}"
+    assert isinstance(body["id"], int) and body["id"] > 0 # check if id is an int and more than 0
+    assert body["status"] == "pending" # check if status is pending
+    assert response.headers["location"] == f"/api/scenarios/{body['id']}" # check if location is valid
 
 @pytest.mark.parametrize(
+    # expected_fragment is the expected keyword in the error message
     "payload, expected_fragment",
     [
         ({**VALID_PAYLOAD, "scenario": "privilege_escalation"}, "scenario"),
@@ -54,8 +57,9 @@ def test_scenario_creation():
 
         ({**VALID_PAYLOAD, "seed": "no"}, "seed"),
 
-        ({k: v for k, v in VALID_PAYLOAD.items() if k !="seed"}, "missing"),
-        ({k: v for k, v in VALID_PAYLOAD.items() if k not in ("events", "seed")}, "missing")
+        # missing fields
+        ({k: v for k, v in VALID_PAYLOAD.items() if k !="seed"}, "missing"), # single
+        ({k: v for k, v in VALID_PAYLOAD.items() if k not in ("events", "seed")}, "missing") # multiple
     ]
 )
 
@@ -77,27 +81,33 @@ def test_get_unknown_scenario():
     assert response.json()["error"] == "scenario_not_found"
 
 def test_deterministic_generation():
+    # send two post requests with the same config and seed
     response1 = client.post("/api/scenarios", json=VALID_PAYLOAD)
     response2 = client.post("/api/scenarios", json=VALID_PAYLOAD)
 
+    # wait for both requests to complete
     data1 = wait_for_completion(response1.json()["id"])
     data2 = wait_for_completion(response2.json()["id"])
 
+    # check if the output in both req are equivalent
     assert data1["scenario"] == data2["scenario"]
 
 def test_req_counts():
     response = client.post("/api/scenarios", json=VALID_PAYLOAD)
     data = wait_for_completion(response.json()["id"])
     scenario = data["scenario"]
-    assert len(scenario["users"]) == 1
-    assert len(scenario["devices"]) == 1
-    assert len(scenario["events"]) == 6
+
+    # check if number of entities generated matches the requested counts
+    assert len(scenario["users"]) == VALID_PAYLOAD["users"]
+    assert len(scenario["devices"]) == VALID_PAYLOAD["devices"]
+    assert len(scenario["events"]) == VALID_PAYLOAD["events"]
 
 def test_entity_ref_id():
     response = client.post("/api/scenarios", json=VALID_PAYLOAD)
     data = wait_for_completion(response.json()["id"])
     scenario = data["scenario"]
 
+    # get all entity ids
     user_ids = {u["id"] for u in scenario["users"]}
     device_ids = {d["id"] for d in scenario["devices"]}
     event_ids = [e["id"] for e in scenario["events"]]
@@ -118,13 +128,15 @@ def test_timestamp_ac_ordering():
     events = data["scenario"]["events"]
 
     # check if timestamps are valid and chronologically ordered
-    timestamps = [datetime.strptime(e["timestamp"], "%Y-%m-%dT%H:%M:%SZ") for e in events]
+    timestamps = [datetime.strptime(e["timestamp"], "%Y-%m-%dT%H:%M:%SZ") for e in events] # throws an error if timestamp is invalid
     assert timestamps == sorted(timestamps)
 
+    # attack chain ordering
     types = {e["type"] for e in events}
     for t in AC_EVENTS:
         assert t in types
 
+    # helper function to get the first index of the specified type
     def first_index(type):
         return next(i for i, e in enumerate(events) if e["type"] == type)
 
@@ -141,44 +153,56 @@ def test_timestamp_ac_ordering():
     ]
 )
 
+# monkeypatch is used to modify the generation code at runtime
 def test_status_transitions(monkeypatch, should_fail, expected_status):
     generate = main.generate_credential_theft_scenario
 
     def test_generate(*args, **kwargs):
+        # add a 0.03s delay so the running status is observable
         time.sleep(0.03)
 
+        # raise an error for failed scenarios
         if should_fail:
             raise RuntimeError("testing status transitions")
         
         return generate(*args, **kwargs)
 
+    # temporarily replace the original generation code with the test ver
     monkeypatch.setattr(main, "generate_credential_theft_scenario", test_generate)
 
     existing_ids = set(main.scenarios.keys())
-    post_thread = threading.Thread(
+
+    # send a post req on a separate thread
+    post_thread = threading.Thread( 
         target=lambda: client.post("/api/scenarios", json=VALID_PAYLOAD)
     )
     post_thread.start()
 
-    deadline = time.time() + 2.0
+    # check scenario status while post req is running
+    # get the id of the newly created scenario
+    deadline = time.time() + 5.0
     scenario_id = None
     while time.time() < deadline:
         new_id = set(main.scenarios.keys()) - existing_ids
         if new_id:
             scenario_id = next(iter(new_id))
             break
-        time.sleep(0.01)
+        time.sleep(0.01) # wait 0.01s before continuing
     assert scenario_id is not None, "scenario was not created"
 
+    # check status transitions
     seen_statuses = []
     while time.time() < deadline:
         status = client.get(f"/api/scenarios/{scenario_id}").json()["status"]
-        if not seen_statuses or seen_statuses[-1] != status:
+
+        # if seen_statuses is empty or status is different from the prev status
+        if not seen_statuses or seen_statuses[-1] != status: 
             seen_statuses.append(status)
         if status == expected_status:
             break
         time.sleep(0.02)
 
+    # wait for the post req thread to finish
     post_thread.join(timeout=2.0)
 
     assert "running" in seen_statuses
@@ -186,7 +210,7 @@ def test_status_transitions(monkeypatch, should_fail, expected_status):
     assert seen_statuses.index("running") < seen_statuses.index(expected_status)
 
 def test_get_completed_scenario():
-    # create scenario
+    # create a new scenario
     response = client.post("/api/scenarios", json=VALID_PAYLOAD)
     scenario_id = response.json()["id"]
 

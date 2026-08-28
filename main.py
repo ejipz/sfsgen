@@ -1,15 +1,15 @@
 import random
 import threading
 from datetime import datetime, timedelta, timezone
-
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 app = FastAPI(title="Synthetic Forensic Scenario Generator")
 
-scenarios = {}
-lock = threading.Lock()
+scenarios = {} # in-memory storage
+lock = threading.Lock() # prevent multiple threads from changing the shared data at the same time
 
+# helper functions
 def update_scenario(scenario_id, **fields):
     with lock:
         if scenario_id in scenarios:
@@ -23,16 +23,17 @@ OS = ["Windows", "macOS", "Linux"]
 HOSTNAMES = ["WORKSTATION", "SERVER", "DESKTOP"]
 AC_EVENTS = ["authentication", "process_execution", "credential_access", "network_connection", "data_exfiltration"]
 BG_EVENTS = ["login_attempt", "file_access", "registry_modification", "scheduled_task_created"]
-TIME = datetime(2025, 1, 10, 10, 0, 0, tzinfo=timezone.utc) # predefined
+TIME = datetime(2025, 1, 10, 10, 0, 0, tzinfo=timezone.utc) # predefined for demo purposes
 
 def generate_users(rng, n):
     users = []
     for i in range(n):
+        # % len(USERNAMES) keeps usernames within the range 
         username = USERNAMES[i % len(USERNAMES)]
         users.append({
-            "id": f"user-{i + 1:03d}",
+            "id": f"user-{i + 1:03d}", # 3 digits with 0s in front
             "username": username,
-            "role": rng.choice(ROLES)
+            "role": rng.choice(ROLES) # randomly select user role from the pool
         })
     return users
 
@@ -46,12 +47,15 @@ def generate_devices(rng, n):
         })
     return devices
 
-def generate_ac_events(type, rng):
+# attack chain
+def generate_ac_details(type, rng):
     if type == "authentication":
         return {
             "result": "success",
             "method": rng.choice(["password", "sso"]),
-            "source_ip": f"10.0.{rng.randint(0, 255)}.{rng.randint(1, 254)}"
+            # private ip
+            # fourth octet is between 1 and 254 because .0 and .255 are reserved
+            "source_ip": f"10.0.{rng.randint(0, 255)}.{rng.randint(1, 254)}" 
         }
     if type == "process_execution":
         return {
@@ -65,19 +69,20 @@ def generate_ac_events(type, rng):
         return {"method": rng.choice(["browser_credential_store", "lsass_dump", "sam_registry_dump"])}
     if type == "network_connection":
         return {
-            "destination_ip": f"203.0.113.{rng.randint(1, 254)}",
-            "destination_port": rng.choice([443, 8443, 4444]),
+            "destination_ip": f"203.0.113.{rng.randint(1, 254)}", # reserved for documentation and examples
+            "destination_port": rng.choice([443, 80, 53]),
             "protocol": "tcp"
         }
     if type == "data_exfiltration":
         return {
             "destination_ip": f"203.0.113.{rng.randint(1, 254)}",
-            "bytes_transferred": rng.randint(1000000, 50000000),
+            "bytes_transferred": rng.randint(1000000, 50000000), # generates a whole num between 1m and 50m
             "channel": rng.choice(["https", "dns_tunnel", "ftp"])
         }
     return {}
 
-def generate_bg_events(type, rng):
+# background
+def generate_bg_details(type, rng):
     if type == "login_attempt":
         return {"result": rng.choice(["sucess", "failure"])}
     if type == "file_access":
@@ -88,25 +93,29 @@ def generate_bg_events(type, rng):
     if type == "registry_modification":
         return {"key": "HKLM\\Software\\Example"}
     if type == "scheduled_task_created":
-        return {"task_name": "UpdaterTask"}
+        return {"task_name": "Microsoft Boost Kernel Optimisation"}
     return {}
 
 def generate_credential_theft_scenario(num_users, num_devices, num_events, seed):
+    # create a deterministic generator using a seed
     rng = random.Random(seed)
 
+    # generate users and devices
     users = generate_users(rng, num_users)
     devices = generate_devices(rng, num_devices)
 
-    # for attack chain events
+    # select user and device for attack chain events
     main_user = rng.choice(users)
     main_device = rng.choice(devices)
 
+    # create all event positions
     positions = list(range(num_events))
-    ac_positions = sorted(rng.sample(positions, len(AC_EVENTS)))
-    bg_positions = [p for p in positions if p not in ac_positions]
+    ac_positions = sorted(rng.sample(positions, len(AC_EVENTS))) # select positions for attack chain events
+    bg_positions = [p for p in positions if p not in ac_positions] # remaining positions
 
+    # assigns event type at each position
     slots = {}
-    for pos, type in zip(ac_positions, AC_EVENTS):
+    for pos, type in zip(ac_positions, AC_EVENTS): # zip() combines two items
         slots[pos] = ("ac", type)
 
     for pos in bg_positions:
@@ -115,18 +124,22 @@ def generate_credential_theft_scenario(num_users, num_devices, num_events, seed)
     time = TIME
     events = []
 
+    # generate each event
     for pos in range(num_events):
         kind, type = slots[pos]
-        time = time + timedelta(minutes=rng.randint(1, 10))
+
+        # generate timestamp
+        # each event occurs 1-10 mins after the prev event
+        time = time + timedelta(minutes=rng.randint(1, 10)) 
 
         if kind == "ac":
             actor = main_user
             device = main_device
-            details = generate_ac_events(type, rng)
+            details = generate_ac_details(type, rng)
         else:
             actor = rng.choice(users)
             device = rng.choice(devices)
-            details = generate_bg_events(type, rng)
+            details = generate_bg_details(type, rng)
 
         events.append({
             "id": f"event-{pos + 1:03d}",
@@ -143,7 +156,9 @@ def generate_credential_theft_scenario(num_users, num_devices, num_events, seed)
 def error_response(code, err, msg):
     return JSONResponse(status_code=code, content={"error": err, "message": msg})
 
+# validate incoming config
 def validate_config(body):
+    # malformed req
     if not isinstance(body, dict):
         raise ValueError("request body must be a JSON object")
 
@@ -155,16 +170,22 @@ def validate_config(body):
 
     # unsupported scenario types
     scenario = body["scenario"]
-    if not isinstance(scenario, str) or scenario != "credential_theft":
+    if not isinstance(scenario, str) or scenario != "credential_theft": # provided scenario is not a str or not credential_theft
         raise ValueError(f"unsupported scenario type: {scenario}")
 
-    # check int type and value
-    def check_int(name, min_value = None):
+    # helper function to check int type and value
+    # min_value is optional
+    def check_int(name, min_value = None): 
         value = body[name]
+        # type
+        # isinstance(value, bool) prevents the check from being bypassed as booleans are subclasses of int
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(f"{name} must be an integer")
+
+        # value
         if min_value is not None and value < min_value:
             raise ValueError(f"{name} must be at least {min_value}")
+        
         return value
 
     users = check_int("users", 1)
@@ -176,9 +197,11 @@ def validate_config(body):
     return {"scenario": scenario, "users": users, "devices": devices, "events": events, "seed": seed}
 
 def generate_scenario(scenario_id, config):
+    # update scenario status to running
     update_scenario(scenario_id, status="running")
 
     try:
+        # try generation and update scenario status to completed if successful
         data = generate_credential_theft_scenario(
             num_users = config["users"],
             num_devices = config["devices"],
@@ -187,6 +210,7 @@ def generate_scenario(scenario_id, config):
         )
         update_scenario(scenario_id, status="completed", scenario=data)
     except Exception as exc:
+        # update scenario status to failed if an error occurs
         update_scenario(scenario_id, status="failed", error=str(exc))
 
 # routes
@@ -198,7 +222,7 @@ async def get_health():
 # create scenario
 @app.post("/api/scenarios")
 async def create_scenario(req: Request, bg_tasks: BackgroundTasks):
-    # validate req body
+    # validate config
     try:
         body = await req.json()
     except Exception:
@@ -209,10 +233,12 @@ async def create_scenario(req: Request, bg_tasks: BackgroundTasks):
     except ValueError as exc:
         return error_response(400, "invalid_configuration", str(exc))
 
+    # create scenario with pending status
     scenario_id = len(scenarios) + 1
     with lock:
         scenarios[scenario_id] = {"id": scenario_id, "status": "pending", "scenario": None, "error": None}
 
+    # start generation asynchronously
     bg_tasks.add_task(generate_scenario, scenario_id, config)
 
     return JSONResponse(
@@ -224,23 +250,30 @@ async def create_scenario(req: Request, bg_tasks: BackgroundTasks):
 # get scenario
 @app.get("/api/scenarios/{scenario_id}")
 async def get_scenario(scenario_id):
+    # validate input
+    # type
     try:
         scenario_id = int(scenario_id)
     except:
         return error_response(400, "invalid_id", "id must be an integer")
     
+    # value
     if scenario_id <= 0:
         return error_response(400, "invalid_id", "id must be greater than 0")
 
+    # fetch scenario data
     with lock:
         scenario = scenarios.get(scenario_id)
     
+    # error handling
     if scenario is None:
         return error_response(404, "scenario_not_found", f"Scenario {scenario_id} was not found")
     
+    # craft and return response
     response = {"id": scenario["id"], "status": scenario["status"]}
     if scenario["status"] == "completed":
         response["scenario"] = scenario["scenario"]
     elif scenario["status"] == "failed":
-        response["error"] = scenario.get("error", "generation failed")
+        # fallback to "generation failed" if theres no error msg
+        response["error"] = scenario.get("error", "generation failed") 
     return response
