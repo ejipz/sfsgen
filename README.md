@@ -97,7 +97,7 @@ Retrieve a scenario by ID.
 
 **Valid Request**
 ```http
-GET /api/scenarios/2
+GET /api/scenarios/1
 ```
 
 **Successful Response**  
@@ -107,7 +107,7 @@ HTTP/1.1 200 OK
 Content-Type: application/json
 
 {
-    "id": 2,
+    "id": 1,
     "status": "running"
 }
 ```
@@ -118,7 +118,7 @@ HTTP/1.1 200 OK
 Content-Type: application/json
 
 {
-    "id": 2,
+    "id": 1,
     "status": "completed",
     "scenario": {
         "users": [
@@ -131,7 +131,7 @@ Content-Type: application/json
         "devices": [
             {
                 "id": "device-001",
-                "hostname": "DESKTOP-01",
+                "hostname": "WORKSTATION-01",
                 "os": "Windows"
             }
         ],
@@ -139,13 +139,75 @@ Content-Type: application/json
             {
                 "id": "event-001",
                 "type": "authentication",
-                "timestamp": "2025-01-10T10:00:00Z",
+                "timestamp": "2025-01-10T10:01:00Z",
                 "actor_user_id": "user-001",
                 "device_id": "device-001",
                 "details": {
-                    "source_ip": "10.0.11.12", 
-                    "method": "password",
+                    "source_ip": "10.0.15.24", 
+                    "method": "sso",
                     "result": "success"
+                }
+            },
+            {
+                "id": "event-002",
+                "type": "process_execution",
+                "timestamp": "2025-01-10T10:05:00Z",
+                "actor_user_id": "user-001",
+                "device_id": "device-001",
+                "details": {
+                    "process_id": 34118,
+                    "process_name": "zsh",
+                    "parent_process": "explorer.exe",
+                    "command": "certutil -decode payload.b64 payload.exe"
+                }
+            },
+            {
+                "id": "event-003",
+                "type": "credential_access",
+                "timestamp": "2025-01-10T10:09:00Z", 
+                "actor_user_id": "user-001",
+                "device_id": "device-001",
+                "details": {
+                    "method": "sam_registry_dump",
+                    "process_name": "powershell.exe",
+                    "target_process": "msedge.exe"
+                }
+            },
+            {
+                "id": "event-004",
+                "type": "network_connection",
+                "timestamp": "2025-01-10T10:16:00Z",
+                "actor_user_id": "user-001",
+                "device_id": "device-001",
+                "details": {
+                    "destination_ip": "203.0.113.57",
+                    "destination_port": 22, 
+                    "protocol": tcp,
+                    "direction": "outbound",
+                    "bytes_sent": 38718
+                }
+            },
+            {
+                "id": "event-005", 
+                "type": "scheduled_task_created",
+                "timestamp": "2025-01-10T10:21:00Z",
+                "actor_user_id": "user-001",
+                "device_id": "device-001",
+                "details": {
+                    "task_name": "System Health Check",
+                    "trigger": "at_startup"
+                }
+            },
+            {
+                "id": "event-006",
+                "type": "data_exfiltration",
+                "timestamp": "2025-01-10T10:27:00Z",
+                "actor_user_id": "user-001",
+                "device_id": "device-001",
+                "details": {
+                    "destination_ip": "203.0.113.72",
+                    "channel": "https",
+                    "bytes_transferred": 15449461
                 }
             }
         ]
@@ -159,9 +221,9 @@ HTTP/1.1 200 OK
 Content-Type: application/json
 
 {
-    "id": 2,
+    "id": 1,
     "status": "failed",
-    "error": "example"
+    "error": "generation failed"
 }
 ```
 
@@ -192,7 +254,7 @@ A seed, provided as part of the scenario configuration, is used to initialise th
 FastAPI's `BackgroundTasks` is used to run the scenario generation in the background. `BackgroundTasks` was chosen because it provides the required functionality without adding unnecessary complexity.
 
 ### Storage
-A dictionary was used as it provides a simple way to store the generated data while the service is running.
+A dictionary is used as it provides a simple way to store the generated data while the service is running.
 
 ## Limitations and Future Work
 | Limitation | Future Work |
